@@ -5,7 +5,7 @@ package research.simulation;
 option java_multiple_files = true;
 
 // A library for Lagrangian Particle Tracking (LPT) simulations.
-// Next id: 9
+// Next id: 10
 message LagrangianParticleTracking {
   // The particle drag coefficient.
   optional float c_d = 1;
@@ -82,6 +82,7 @@ message LagrangianParticleTracking {
   // How the particles are stored in multi-TPU simulations.
   oneof lpt_parallel_approach {
     FieldExchange field_exchange = 6;
+    ParticleExchange particle_exchange = 9;
   }
 
   // The approach where particles remain stored on their original TPU,
@@ -116,4 +117,9 @@ message LagrangianParticleTracking {
     }
     optional CommunicationMode communication_mode = 5 [default = ONE_SHUFFLE];
   }
+
+  // The approach where particles are stored in the TPU whos partial domain
+  // they fall within and are communicated to other TPUs when they cross
+  // domain boundaries.
+  message ParticleExchange {}
 }

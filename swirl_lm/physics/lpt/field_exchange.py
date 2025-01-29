@@ -91,6 +91,7 @@ class FieldExchange(lpt.LPT):
     """
     particles_generated_per_replica = additional_states[LPT_COUNTER_KEY]
 
+    lpt_field_ints = additional_states[LPT_INTS_KEY]
     lpt_field_floats = additional_states[LPT_FLOATS_KEY]
     locs = lpt_field_floats[:, :3]
 
@@ -116,7 +117,13 @@ class FieldExchange(lpt.LPT):
     # Time step the particles, updating their attributes.
     with tf.name_scope("time_step_particles"):
       lpt_field_ints, lpt_field_floats = self.increment_time(
-          replica_id, replicas, additional_states, fluid_vels, omegas
+          replica_id, 
+          replicas, 
+          lpt_field_ints, 
+          lpt_field_floats, 
+          additional_states, 
+          fluid_vels, 
+          omegas,
       )
 
     # TODO(ntricard): Account for particles influence on fluid motion.

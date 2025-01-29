@@ -106,7 +106,7 @@ class LptInjector(abc.ABC):
 
     # Number of new particles total in the domain.
     exchange_method = params.lpt.WhichOneof("lpt_parallel_approach")
-    if exchange_method == "field_exchange":
+    if exchange_method in ("field_exchange", "particle_exchange"):
       check_op = tf.debugging.assert_equal(
           n_particles % num_replicas,
           0,

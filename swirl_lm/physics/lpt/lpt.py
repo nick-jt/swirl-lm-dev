@@ -282,6 +282,8 @@ class LPT:
       self,
       replica_id: tf.Tensor,
       replicas: np.ndarray,
+      lpt_field_ints: tf.Tensor,
+      lpt_field_floats: tf.Tensor,
       additional_states: FlowFieldMap,
       fluid_speeds: tf.Tensor,
       omegas: tf.Tensor,
@@ -292,8 +294,9 @@ class LPT:
       replica_id: The ID of the replica that is calling this function.
       replicas: A 3D numpy array containing the replica ID with the global
         domain.
+      lpt_field_ints: A tensor of integer particle fields.
+      lpt_field_floats: A tensor of float particle fields.
       additional_states: A dictionary of additional particle and fluid states.
-        This includes the Lagrangian particle (lpt) states.
       fluid_speeds: A tensor (n, 3) of fluid speeds at the n particle locations
         [m/s].
       omegas: Mass consumption rates for each particle [kg/s].
@@ -305,9 +308,6 @@ class LPT:
         locations (x0, x1, x2), particle velocities (v0, v1, v2), particle
         masses.
     """
-    lpt_field_ints = additional_states[lpt_types.LPT_INTS_KEY]
-    lpt_field_floats = additional_states[lpt_types.LPT_FLOATS_KEY]
-
     local_min_loc = self._get_local_min_loc(replicas, replica_id)
 
     def particle_evolution(part_locs, part_vels, part_masses):

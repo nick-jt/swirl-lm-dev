@@ -16,6 +16,7 @@
 
 from swirl_lm.base import parameters as parameters_lib
 from swirl_lm.physics.lpt import field_exchange
+from swirl_lm.physics.lpt import particle_exchange
 
 
 def lpt_factory(params: parameters_lib.SwirlLMParameters):
@@ -29,6 +30,8 @@ def lpt_factory(params: parameters_lib.SwirlLMParameters):
 
   if model_type == "field_exchange":
     model = field_exchange.FieldExchange(params)
+  elif model_type == "particle_exchange":
+    model = particle_exchange.ParticleExchange(params)
   else:
     raise NotImplementedError(
         f"Unknown LPT parallel exchange approach: {model_type}."

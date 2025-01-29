@@ -117,12 +117,12 @@ class FieldExchange(lpt.LPT):
     # Time step the particles, updating their attributes.
     with tf.name_scope("time_step_particles"):
       lpt_field_ints, lpt_field_floats = self.increment_time(
-          replica_id, 
-          replicas, 
-          lpt_field_ints, 
-          lpt_field_floats, 
-          additional_states, 
-          fluid_vels, 
+          replica_id,
+          replicas,
+          lpt_field_ints,
+          lpt_field_floats,
+          additional_states,
+          fluid_vels,
           omegas,
       )
 
@@ -148,29 +148,3 @@ class FieldExchange(lpt.LPT):
         LPT_FLOATS_KEY: lpt_field_floats,
         LPT_COUNTER_KEY: particles_generated_per_replica,
     }
-
-  def _apply_periodic_boundary_conditions(
-      self, lpt_field_floats: lpt_types.LptFieldFloats
-  ) -> lpt_types.LptFieldFloats:
-    """Applies periodic boundary conditions to the particle field."""
-    locs = lpt_field_floats[:, :3]
-    dim_lengths = (self.params.lz, self.params.lx, self.params.ly)
-    grid_params = self.params.grid_params_proto
-    periodic = (
-        grid_params.periodic.dim_2,
-        grid_params.periodic.dim_0,
-        grid_params.periodic.dim_1,
-    )
-    for dim, dim_length in enumerate(dim_lengths):
-      if not periodic[dim]:
-        continue
-      # TODO(ntricard): Performance can be improved by only modularizing the
-      # locations that hit a periodic boundary.
-      new_particle_dim_locs = locs[:, dim] % dim_length
-      lpt_field_floats = tf.tensor_scatter_nd_update(
-          lpt_field_floats,
-          tf.stack([tf.range(self.n_max), tf.fill((self.n_max,), dim)], axis=1),
-          new_particle_dim_locs,
-      )
-
-    return lpt_field_floats

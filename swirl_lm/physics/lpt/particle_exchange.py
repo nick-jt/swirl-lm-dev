@@ -21,6 +21,7 @@ from one device's partial domain to another.
 from typing import TypeAlias
 import numpy as np
 from swirl_lm.physics.lpt import lpt
+from swirl_lm.physics.lpt import lpt_comm
 from swirl_lm.physics.lpt import lpt_types
 from swirl_lm.physics.lpt import lpt_utils
 from swirl_lm.utility import types
@@ -94,6 +95,12 @@ class ParticleExchange(lpt.LPT):
       )
       new_locs = lpt_floats_active[:, :3]
 
+    # Modulus the locations across periodic boundaries.
+    with tf.name_scope("apply_periodic_boundary_conditions"):
+      lpt_field_floats = self._apply_periodic_boundary_conditions(
+          lpt_field_floats
+      )
+
     # Removing particles that have exited the domain or have vaporized.
     with tf.name_scope("removing_exiting_particles"):
       dest_replicas = lpt_utils.get_particle_replica_id(
@@ -103,11 +110,19 @@ class ParticleExchange(lpt.LPT):
           lpt_ints_active, lpt_floats_active, dest_replicas
       )
 
-    # TODO(ntricard): Implement communication method between cores.
+    # Sending and receiving particles.
+    with tf.name_scope("sending_receiving_particles"):
+      new_lpt_ints, new_lpt_floats = lpt_comm.neighbor_exchange(
+          lpt_field_ints, lpt_field_floats, dest_replicas, replica_id, replicas
+      )
+
+    with tf.name_scope("adding_particles_to_list"):
+      lpt_ints_active, lpt_floats_active = self._add_new_particles(
+          lpt_ints_active, lpt_floats_active, new_lpt_ints, new_lpt_floats
+      )
 
     # Replace the field tensors with the new ones.
     lpt_field_ints = tf.ensure_shape(lpt_ints_active, lpt_field_ints.shape)
-
     lpt_field_floats = tf.ensure_shape(
         lpt_floats_active, lpt_field_floats.shape
     )

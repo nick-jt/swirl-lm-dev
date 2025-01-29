@@ -16,9 +16,11 @@
 
 from typing import Sequence, TypeAlias
 import numpy as np
+import itertools
 from swirl_lm.communication import send_recv
 from swirl_lm.physics.lpt import lpt_types
 from swirl_lm.physics.lpt import lpt_utils
+from swirl_lm.utility import common_ops
 from swirl_lm.utility import types
 import tensorflow as tf
 
@@ -234,3 +236,89 @@ def one_shuffle(
       loc_and_fluid_data = tf.concat([locs, fluid_data], axis=1)
 
   return loc_and_fluid_data[:, 3:]
+
+
+def neighbor_exchange(
+    lpt_field_ints: lpt_types.LptFieldInts,
+    lpt_field_floats: lpt_types.LptFieldFloats,
+    dest_replicas: tf.Tensor,
+    replica_id: int,
+    replicas: np.ndarray,
+) -> tuple[lpt_types.LptFieldInts, lpt_types.LptFieldFloats]:
+  """A direct neighbor-wise exchange of particles.
+
+  This method is used in the particle-exchange communication approach for
+  Lagrangian particle tracking. Here, we iterate through all neighboring cores
+  and conduct communications with those cores, sending particles that
+  leave our core to enter the core we are sending to, and receiving particles
+  from particles we are receiving from in that iteration.
+
+  Args:
+
+  Returns:
+
+  """
+  # Current replica i,j,k
+  i, j, k = common_ops.get_core_coordinate(replicas, replica_id)
+
+  # Initializing receiving tensors.
+  new_particle_ints = tf.zeros((0, 2), lpt_types.LPT_INT)
+  new_particle_floats = tf.zeros((0, 7), lpt_types.LPT_FLOAT)
+
+  # Gathering computation shape
+  cx, cy, cz = replicas.shape
+
+  # The array `replicas` is used here to find the src and dest in the exchange.
+  # We iterate over all 6 sides around our core to determine which side to send
+  # to: `(+x, -x, +y, -y, +z, -z)`. For the below lines, when `dir_idx = 0`, we
+  # are referring to the  `+x` direction, which provides `p, q, w = (1, 0, 0)`.
+  # Likewise, when `dir_idx = 3`, it is the `-y` direction, and
+  # `p, q, w = (0, -1, 0)`. For periodic boundaries, the modulus ensures we send
+  # from top to bottom and from bottom to top.
+  for dir_idx, sign in itertools.product(range(3), (1, -1)):
+    p, q, w = tuple(np.roll([1, 0, 0], dir_idx) * sign)
+    print("pqw=", p, q, w)
+    source_dest_pairs = np.array(
+        [
+            [
+                replicas[i, j, k], replicas[(i + p) % cx, (j + q) % cy,
+                                            (k + w) % cz]
+            ] for i, j, k in itertools.product(range(cx), range(cy), range(cz))
+        ]
+    )
+    print(f"{dir_idx=}, {source_dest_pairs=}")
+    send_to = tf.convert_to_tensor(source_dest_pairs)[replica_id, 1]
+
+    # Determining which particles to send.
+    send_particle_indices = tf.where(tf.equal(dest_replicas, send_to))
+
+    # Extracting appropriate data to send.
+    send_particle_ints = tf.gather_nd(lpt_field_ints, send_particle_indices)
+    send_particle_floats = tf.gather_nd(lpt_field_floats, send_particle_indices)
+
+    # TODO(ntricard): consider meshing floats and ints into one collective send.
+
+    # Sending and receiving from replicas.
+    recv_particle_floats = tf.raw_ops.CollectivePermute(
+        input=send_particle_floats, source_target_pairs=source_dest_pairs
+    )
+    recv_particle_ints = tf.raw_ops.CollectivePermute(
+        input=send_particle_ints, source_target_pairs=source_dest_pairs
+    )
+
+    # Extracting new particles to add.
+    recv_particle_idxs = tf.where(tf.equal(recv_particle_ints[:, 1], 1))
+    recv_particle_ints = tf.gather_nd(recv_particle_ints, recv_particle_idxs)
+    recv_particle_floats = tf.gather_nd(
+        recv_particle_floats, recv_particle_idxs
+    )
+
+    # Adding new particles to stack of added particles.
+    new_particle_ints = tf.concat(
+        (new_particle_ints, recv_particle_ints), axis=0
+    )
+    new_particle_floats = tf.concat(
+        (new_particle_floats, recv_particle_floats), axis=0
+    )
+
+  return new_particle_ints, new_particle_floats

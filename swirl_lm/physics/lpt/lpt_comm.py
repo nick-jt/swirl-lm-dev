@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Communication library for the lagrangian particles."""
 
 from typing import Sequence, TypeAlias
@@ -104,7 +103,8 @@ def pairwise(
           tf.where(loc_replica_ids == dest_replica), [-1]
       )
       dest_replica_loc = (
-          tf.one_hot(dest_replica_loc_indices, tf.shape(locs)[0]) @ locs
+          tf.one_hot(dest_replica_loc_indices,
+                     tf.shape(locs)[0]) @ locs
       )
 
     with tf.name_scope("send_recv_locations"):
@@ -242,7 +242,7 @@ def neighbor_exchange(
     lpt_field_ints: lpt_types.LptFieldInts,
     lpt_field_floats: lpt_types.LptFieldFloats,
     dest_replicas: tf.Tensor,
-    replica_id: int,
+    replica_id: tf.Tensor,
     replicas: np.ndarray,
 ) -> tuple[lpt_types.LptFieldInts, lpt_types.LptFieldFloats]:
   """A direct neighbor-wise exchange of particles.
@@ -250,75 +250,93 @@ def neighbor_exchange(
   This method is used in the particle-exchange communication approach for
   Lagrangian particle tracking. Here, we iterate through all neighboring cores
   and conduct communications with those cores, sending particles that
-  leave our core to enter the core we are sending to, and receiving particles
-  from particles we are receiving from in that iteration.
+  leave our core to enter the core we are sending to and receiving particles
+  from cores we are receiving from in that iteration.
 
   Args:
+    lpt_field_ints: A tensor containing integer field values for the particles.
+    lpt_field_floats: A tensor with floating point values for the particles.
+    dest_replicas: A 1-D tensor of size num particles that defines their current
+      replica location. Can be obtained from `get_particle_replica_id`.
+    replica_id: The ID of the calling replica.
+    replicas: A 3-D numpy array defining all replicas in the domain.
 
   Returns:
 
   """
-  # Current replica i,j,k
-  i, j, k = common_ops.get_core_coordinate(replicas, replica_id)
-
   # Initializing receiving tensors.
-  new_particle_ints = tf.zeros((0, 2), lpt_types.LPT_INT)
-  new_particle_floats = tf.zeros((0, 7), lpt_types.LPT_FLOAT)
+  new_particle_ints = tf.zeros_like(lpt_field_ints)
+  new_particle_floats = tf.zeros_like(lpt_field_floats)
 
   # Gathering computation shape
   cx, cy, cz = replicas.shape
 
+  # Accumulating received particles.
+  recv_part_count = tf.constant(0, lpt_types.LPT_INT)
+
   # The array `replicas` is used here to find the src and dest in the exchange.
   # We iterate over all 6 sides around our core to determine which side to send
-  # to: `(+x, -x, +y, -y, +z, -z)`. For the below lines, when `dir_idx = 0`, we
-  # are referring to the  `+x` direction, which provides `p, q, w = (1, 0, 0)`.
-  # Likewise, when `dir_idx = 3`, it is the `-y` direction, and
-  # `p, q, w = (0, -1, 0)`. For periodic boundaries, the modulus ensures we send
-  # from top to bottom and from bottom to top.
+  # to: `(+x, -x, +y, -y, +z, -z)`. Simultaneously, we determine cores we are
+  # receiving from (-x, +x, -y, +y, -z, +z). For the below lines, when
+  # `dir_idx = 0`, we are referring to the  `+x` direction, which provides
+  # `p, q, w = (1, 0, 0)`. Likewise, when `dir_idx = 3`, it is the `-y`
+  # direction, and `p, q, w = (0, -1, 0)`. For periodic boundaries, the modulus
+  # ensures we send from top to bottom and from bottom to top.
   for dir_idx, sign in itertools.product(range(3), (1, -1)):
-    p, q, w = tuple(np.roll([1, 0, 0], dir_idx) * sign)
-    print("pqw=", p, q, w)
-    source_dest_pairs = np.array(
-        [
-            [
-                replicas[i, j, k], replicas[(i + p) % cx, (j + q) % cy,
-                                            (k + w) % cz]
-            ] for i, j, k in itertools.product(range(cx), range(cy), range(cz))
-        ]
-    )
-    print(f"{dir_idx=}, {source_dest_pairs=}")
-    send_to = tf.convert_to_tensor(source_dest_pairs)[replica_id, 1]
+    with tf.name_scope("creating_send_recv_tensor"):
+      p, q, w = tuple(np.roll([1, 0, 0], dir_idx) * sign)
+      source_dest_pairs = np.array(
+          [
+              [
+                  replicas[i, j, k], replicas[(i + p) % cx, (j + q) % cy,
+                                              (k + w) % cz]
+              ]
+              for i, j, k in itertools.product(range(cx), range(cy), range(cz))
+          ]
+      )
+      send_to = tf.convert_to_tensor(source_dest_pairs)[replica_id, 1]
 
-    # Determining which particles to send.
-    send_particle_indices = tf.where(tf.equal(dest_replicas, send_to))
-
-    # Extracting appropriate data to send.
-    send_particle_ints = tf.gather_nd(lpt_field_ints, send_particle_indices)
-    send_particle_floats = tf.gather_nd(lpt_field_floats, send_particle_indices)
+    with tf.name_scope("determining_which_particles_to_send"):
+      send_particle_indices = tf.where(tf.equal(dest_replicas, send_to))
+      send_particle_ints = tf.gather_nd(lpt_field_ints, send_particle_indices)
+      send_particle_floats = tf.gather_nd(
+          lpt_field_floats, send_particle_indices
+      )
 
     # TODO(ntricard): consider meshing floats and ints into one collective send.
+    with tf.name_scope("send_recv_ints"):
+      recv_particle_floats = send_recv.send_recv(
+          send_particle_floats, source_dest_pairs, lpt_field_ints.shape[0]
+      )
+    with tf.name_scope("send_recv_floats"):
+      recv_particle_ints = send_recv.send_recv(
+          send_particle_ints, source_dest_pairs, lpt_field_ints.shape[0]
+      )
 
-    # Sending and receiving from replicas.
-    recv_particle_floats = tf.raw_ops.CollectivePermute(
-        input=send_particle_floats, source_target_pairs=source_dest_pairs
-    )
-    recv_particle_ints = tf.raw_ops.CollectivePermute(
-        input=send_particle_ints, source_target_pairs=source_dest_pairs
-    )
+    with tf.name_scope("extracting_new_particles_to_add"):
+      bool_mask = tf.cast(lpt_field_ints[:, 1], tf.bool)
+      recv_particle_ints = tf.boolean_mask(recv_particle_ints, bool_mask)
+      recv_particle_floats = tf.boolean_mask(recv_particle_floats, bool_mask)
 
-    # Extracting new particles to add.
-    recv_particle_idxs = tf.where(tf.equal(recv_particle_ints[:, 1], 1))
-    recv_particle_ints = tf.gather_nd(recv_particle_ints, recv_particle_idxs)
-    recv_particle_floats = tf.gather_nd(
-        recv_particle_floats, recv_particle_idxs
-    )
+    with tf.name_scope("adding_new_particle_to_stack"):
+      num_new_particles = tf.reduce_sum(lpt_field_ints[:, 1])
+      indices = tf.range(tf.shape(lpt_field_ints)[0]) + recv_part_count
+      new_particle_ints = tf.tensor_scatter_nd_update(
+          new_particle_ints, indices[:num_new_particles, None],
+          recv_particle_ints
+      )
+      new_particle_floats = tf.tensor_scatter_nd_update(
+          new_particle_floats, indices[:num_new_particles, None],
+          recv_particle_floats
+      )
+      recv_part_count += num_new_particles
 
-    # Adding new particles to stack of added particles.
-    new_particle_ints = tf.concat(
-        (new_particle_ints, recv_particle_ints), axis=0
-    )
-    new_particle_floats = tf.concat(
-        (new_particle_floats, recv_particle_floats), axis=0
+  # Adjusting sizes to be just new particles.
+  with tf.name_scope("removing_empty_space"):
+    indices = tf.range(tf.shape(lpt_field_ints)[0])
+    new_particle_ints = tf.gather(new_particle_ints, indices[:recv_part_count])
+    new_particle_floats = tf.gather(
+        new_particle_floats, indices[:recv_part_count]
     )
 
   return new_particle_ints, new_particle_floats

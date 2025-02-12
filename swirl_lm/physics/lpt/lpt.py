@@ -20,9 +20,9 @@ import numpy as np
 import six
 from swirl_lm.base import parameters as parameters_lib
 from swirl_lm.numerics import time_integration
-from swirl_lm.physics import constants
 from swirl_lm.physics.lpt import injector
 from swirl_lm.physics.lpt import lpt_pb2
+from swirl_lm.physics.lpt import lpt_models
 from swirl_lm.physics.lpt import lpt_types
 from swirl_lm.utility import common_ops
 from swirl_lm.utility import stretched_grid_util
@@ -37,23 +37,8 @@ class LPT:
   """Methods to manage particle fields, including positions, velocities, etc.
 
   Particles are modeled as points in space with one-way coupling to the
-  surrounding fluid. Governing equations are:
-
-  ```
-  d(x_p) / dt = v_p,
-  d(v_p) / dt = -c_d / tau_p * (v_p - v_f),
-  d(m_p) / dt = -omega,
-  ```
-
-  where `x_p` is particle location, `v_p` is particle velocity, `m_p` is
-  particle mass.  Also, `c_d` is the drag coefficient, `tau_p` is the relaxation
-  time, `omega` is the mass consumption rate, and `v_f` is the fluid velocity at
-  the location of the particle. Each velocity `v` can be broken down into three
-  components `v0`, `v1`, and `v2`. The parameters `c_d` and `tau_p` are
-  constants and are defined in initializing this class. `omega` is provided as a
-  parameter of `increment_time` and can update at run-time.  For any
-  stretched-dimensions, those dimensions will be tracked in the mapped domain.
-
+  surrounding fluid. Particle governing equations are outlined in `lpt_rhs.py`.
+  
   The particles states are assumed to be stored in two 2D tensors:
 
     `lpt_field_ints`: (n, 2) for n total particle spaces (see below about n).
@@ -87,8 +72,6 @@ class LPT:
       x, y.
     core_spacings: Each core's partial domain size in the z, x, y directions.
     num_replicas: The number of replicas used globally in the domain.
-    c_d: Drag coefficient [-].
-    tau_p: Relaxation time [s].
     mass_threshold: The mass below which a particle is considered terminated
       [kg].
     n_max: The maximum number of particles each replica can have.
@@ -145,8 +128,6 @@ class LPT:
     )
     self.num_replicas = params.num_replicas
 
-    self.c_d = params.lpt.c_d
-    self.tau_p = params.lpt.tau_p
     self.mass_threshold = params.lpt.mass_threshold
     self.n_max = params.lpt.n_max
     self.gravity_direction = np.array(
@@ -311,26 +292,16 @@ class LPT:
     local_min_loc = self._get_local_min_loc(replicas, replica_id)
 
     def particle_evolution(part_locs, part_vels, part_masses):
-      del part_locs, part_masses
-      # In a stretched grid, dxdt becomes mapped coordinates, while dvdt and
-      # dmdt remain in physical domain.
-      if np.any(self.use_stretched_grid_zxy):
-        # For any non-stretched dimensions, the returned value for
-        # `grid_spacings`` is 1.0 because the dxdt equation remains in physical
-        # domain for those dimensions.
-        with tf.name_scope("lpt_getting_stretched_grid_spacings"):
-          grid_spacings = self._get_grid_spacings(
-              additional_states, local_min_loc
-          )
-        dxdt = part_vels / grid_spacings
-      else:
-        dxdt = part_vels
-      dvdt = (
-          self.c_d / self.tau_p * (fluid_speeds - part_vels)
-          + tf.constant(self.gravity_direction) * constants.G
+      return lpt_models.particle_rhs(
+          self,
+          part_locs,
+          part_vels,
+          part_masses,
+          additional_states=additional_states,
+          local_min_loc=local_min_loc,
+          fluid_speeds=fluid_speeds,
+          omegas=omegas,
       )
-      dmdt = -omegas
-      return (dxdt, dvdt, dmdt)
 
     locs = lpt_field_floats[:, 0:3]
     vels = lpt_field_floats[:, 3:6]

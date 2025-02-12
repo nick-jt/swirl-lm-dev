@@ -5,16 +5,26 @@ package research.simulation;
 option java_multiple_files = true;
 
 // A library for Lagrangian Particle Tracking (LPT) simulations.
-// Next id: 10
+// Next id: 11
 message LagrangianParticleTracking {
-  // The particle drag coefficient.
-  optional float c_d = 1;
-  // The particle relaxation time.
-  optional float tau_p = 2;
   // The threshold mass below which the particle is considered to be vanished.
   optional float mass_threshold = 3;
   // The maximum number of particles that a replica can have.
   optional int32 n_max = 4;
+
+  // Equations used to calculate the particle acceleration. See `lpt_rhs.py`
+  // for more details
+  oneof drag_model {
+    // User-defined drag coefficient c_d and lagging time, tau_p.
+    ManualDrag manual_drag = 10;
+  }
+
+  message ManualDrag {
+    // The particle drag coefficient.
+    optional float c_d = 1;
+    // The particle relaxation time.
+    optional float tau_p = 2;
+  }
 
   // A three dimensional method to inject particles into the field.
   message LptInjector {

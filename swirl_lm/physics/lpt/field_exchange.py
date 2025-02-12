@@ -27,6 +27,7 @@ import numpy as np
 from swirl_lm.base import parameters as parameters_lib
 from swirl_lm.physics.lpt import lpt
 from swirl_lm.physics.lpt import lpt_comm
+from swirl_lm.physics.lpt import lpt_models
 from swirl_lm.physics.lpt import lpt_pb2
 from swirl_lm.physics.lpt import lpt_types
 from swirl_lm.physics.lpt import lpt_utils
@@ -34,9 +35,6 @@ from swirl_lm.utility import types
 import tensorflow as tf
 
 FlowFieldMap: TypeAlias = types.FlowFieldMap
-
-
-FIELD_VALS = ["w", "u", "v"]
 
 LPT_INTS_KEY = lpt_types.LPT_INTS_KEY
 LPT_FLOATS_KEY = lpt_types.LPT_FLOATS_KEY
@@ -95,15 +93,18 @@ class FieldExchange(lpt.LPT):
     lpt_field_floats = additional_states[LPT_FLOATS_KEY]
     locs = lpt_field_floats[:, :3]
 
+    # Determining the required fluid variables for the particle models.
+    variables = lpt_models.required_fluid_vars(self)
+
     # Exchange fluid data at particle locations with other replicas.
     with tf.name_scope("communicate_fluid_data"):
       local_min_loc = self._get_local_min_loc(replicas, replica_id)
-      fluid_vels = self.exchange_fluid_data_fn(
+      fluid_vars = self.exchange_fluid_data_fn(
           locs,
           states,
           replica_id,
           replicas,
-          FIELD_VALS,
+          variables,
           self.grid_spacings_zxy,
           self.core_spacings,
           local_min_loc,
@@ -121,8 +122,9 @@ class FieldExchange(lpt.LPT):
           replicas, 
           lpt_field_ints, 
           lpt_field_floats, 
+          states,
           additional_states, 
-          fluid_vels, 
+          fluid_vars, 
           omegas,
       )
 

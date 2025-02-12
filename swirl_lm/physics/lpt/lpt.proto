@@ -5,7 +5,7 @@ package research.simulation;
 option java_multiple_files = true;
 
 // A library for Lagrangian Particle Tracking (LPT) simulations.
-// Next id: 11
+// Next id: 15
 message LagrangianParticleTracking {
   // The threshold mass below which the particle is considered to be vanished.
   optional float mass_threshold = 3;
@@ -17,6 +17,8 @@ message LagrangianParticleTracking {
   oneof drag_model {
     // User-defined drag coefficient c_d and lagging time, tau_p.
     ManualDrag manual_drag = 10;
+    // Non-spherical drag model from Haider and Levenspiel.
+    HaiderLevenspiel haider_levenspiel = 11;
   }
 
   message ManualDrag {
@@ -24,6 +26,18 @@ message LagrangianParticleTracking {
     optional float c_d = 1;
     // The particle relaxation time.
     optional float tau_p = 2;
+  }
+
+  // This approach takes into account the shape factor, phi, of the particles.
+  // Phi is defined as s / S, where s is the equivalent spherical surface
+  // area, and S is the actual surface area.
+  message HaiderLevenspiel {
+    // Particle density.
+    optional float rho_p = 12;
+    // Particle equivalent spherical diameter.
+    optional float d_p = 13;
+    // Particle shape factor, defined above.
+    optional float phi = 14;
   }
 
   // A three dimensional method to inject particles into the field.

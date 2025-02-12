@@ -265,8 +265,9 @@ class LPT:
       replicas: np.ndarray,
       lpt_field_ints: tf.Tensor,
       lpt_field_floats: tf.Tensor,
+      states: FlowFieldMap,
       additional_states: FlowFieldMap,
-      fluid_speeds: tf.Tensor,
+      fluid_vars: tf.Tensor,
       omegas: tf.Tensor,
   ) -> tuple[lpt_types.LptFieldInts, lpt_types.LptFieldFloats]:
     """Updates the particles states through time integration.
@@ -278,8 +279,8 @@ class LPT:
       lpt_field_ints: A tensor of integer particle fields.
       lpt_field_floats: A tensor of float particle fields.
       additional_states: A dictionary of additional particle and fluid states.
-      fluid_speeds: A tensor (n, 3) of fluid speeds at the n particle locations
-        [m/s].
+      fluid_vars: A tensor (n, m) of `m` fluid variables at the `n` particle
+        locations. This will likely include fluid speeds and sometimes density.
       omegas: Mass consumption rates for each particle [kg/s].
 
     Returns:
@@ -297,9 +298,10 @@ class LPT:
           part_locs,
           part_vels,
           part_masses,
+          states=states,
           additional_states=additional_states,
           local_min_loc=local_min_loc,
-          fluid_speeds=fluid_speeds,
+          fluid_vars=fluid_vars,
           omegas=omegas,
       )
 

@@ -21,14 +21,13 @@ from one device's partial domain to another.
 from typing import TypeAlias
 import numpy as np
 from swirl_lm.physics.lpt import lpt
+from swirl_lm.physics.lpt import lpt_models
 from swirl_lm.physics.lpt import lpt_types
 from swirl_lm.physics.lpt import lpt_utils
 from swirl_lm.utility import types
 import tensorflow as tf
 
 FlowFieldMap: TypeAlias = types.FlowFieldMap
-
-FIELD_VALS = ["w", "u", "v"]
 
 LPT_INTS_KEY = lpt_types.LPT_INTS_KEY
 LPT_FLOATS_KEY = lpt_types.LPT_FLOATS_KEY
@@ -74,8 +73,10 @@ class ParticleExchange(lpt.LPT):
     # Gathering fluid properites at the particle locations.
     with tf.name_scope("interpolate_fluid_data"):
       local_min_pt = self._get_local_min_loc(replicas, replica_id)
-      fluid_vels = lpt_utils.fluid_data_linear_interpolation(
-          locs_local, states, FIELD_VALS, self.grid_spacings_zxy, local_min_pt
+      field_varnames = lpt_models.required_field_vars(self)
+      fluid_vars = lpt_utils.fluid_data_linear_interpolation(
+          locs_local, states, field_varnames, self.grid_spacings_zxy,
+          local_min_pt
       )
 
     # TODO(ntricard): Add mass consumption rate function.
@@ -88,8 +89,9 @@ class ParticleExchange(lpt.LPT):
           replicas,
           lpt_ints_active,
           lpt_floats_active,
+          states,
           additional_states,
-          fluid_vels,
+          fluid_vars,
           omegas,
       )
       new_locs = lpt_floats_active[:, :3]
